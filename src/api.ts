@@ -76,8 +76,7 @@ export class API {
                     data,
                     url: this.getURL(path),
                     headers: {
-                        cookie: this.cookies.join(';'),
-                        'Content-Type': 'application/json'
+                        cookie: this.cookies.join(';')
                     }
                 });
                 return res.data;
