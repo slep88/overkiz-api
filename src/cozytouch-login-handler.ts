@@ -1,5 +1,5 @@
-import {PlatformLoginHandler} from "./platform-login-handler";
-import * as request from "request-promise";
+import { PlatformLoginHandler } from "./platform-login-handler";
+import axios from 'axios';
 
 export class CozytouchLoginHandler implements PlatformLoginHandler {
 
@@ -15,31 +15,37 @@ export class CozytouchLoginHandler implements PlatformLoginHandler {
     }
 
     private async getAccessToken(): Promise<string> {
-        const json = await request.post(`${CozytouchLoginHandler.baseURL}/token`, {
-            form: {
+        const formParams = new URLSearchParams(
+            {
                 grant_type: 'password',
                 username: this.user,
                 password: this.password
-            },
+            });
+        const res = await axios({
+            method: 'post',
+            url: `${CozytouchLoginHandler.baseURL}/token`,
+            data: formParams,
             headers: {
                 Authorization: `Basic ${CozytouchLoginHandler.clientId}`
-            },
-            json: true
+            }
         });
-        if(typeof json.access_token !== 'string') {
+        const json = res.data;
+        if (typeof json.access_token !== 'string') {
             throw new Error("No access token retrieves check your credentials");
         }
         return json.access_token;
     }
 
     private async getJWT(accessToken: string): Promise<string> {
-        const res = await request.get(`${CozytouchLoginHandler.baseURL}/gacoma/gacomawcfservice/accounts/jwt`, {
+        const res = await axios({
+            method: 'get',
+            url: `${CozytouchLoginHandler.baseURL}/gacoma/gacomawcfservice/accounts/jwt`,
             headers: {
                 Authorization: `Bearer ${accessToken}`
             },
         });
-        const jwt = res.toString();
-        if(!jwt || jwt.length === 0) {
+        const jwt = res.data.toString();
+        if (!jwt || jwt.length === 0) {
             throw new Error("No jwt retrieves check your credentials");
         }
         return jwt.slice(1, jwt.length - 1);

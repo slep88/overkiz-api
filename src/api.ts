@@ -1,11 +1,9 @@
-import * as request from 'request-promise';
-import {RequestPromiseOptions} from 'request-promise';
-import {CookieJar, Response} from 'request';
-import {APIObject, RAWObject} from './object';
-import {RAWSetup, Setup} from './setup';
-import {Execution, Task} from './execution';
-import {EventListener, PollingInfo} from './event-listener';
-import {PlatformLoginHandler} from "./platform-login-handler";
+import { APIObject, RAWObject } from './object';
+import { RAWSetup, Setup } from './setup';
+import { Execution, Task } from './execution';
+import { EventListener, PollingInfo } from './event-listener';
+import { PlatformLoginHandler } from "./platform-login-handler";
+import axios from 'axios';
 
 export interface Config {
     readonly host: string;
@@ -18,7 +16,7 @@ export class API {
     readonly host: string;
     readonly platformLoginHandler: PlatformLoginHandler;
     readonly eventListener: EventListener;
-    private cookies?: CookieJar;
+    private cookies?: string[];
 
     constructor(config: Config) {
         this.host = config.host;
@@ -34,31 +32,29 @@ export class API {
         return `${this.getBaseURL()}/enduser-mobile-web/enduserAPI/${path}`;
     }
 
-    public async get(path: string, options?: RequestPromiseOptions): Promise<any> {
-        return this.req(request.get, path, options);
+    public async get(path: string, data?: any): Promise<any> {
+        return this.req('get', path, data);
     }
 
-    public async post(path: string, options?: RequestPromiseOptions): Promise<any> {
-        return this.req(request.post, path, options);
+    public async post(path: string, data?: any): Promise<any> {
+        return this.req('post', path, data);
     }
 
-    public async delete(path: string, options?: RequestPromiseOptions): Promise<any> {
-        return this.req(request.delete, path, options);
+    public async delete(path: string, data?: any): Promise<any> {
+        return this.req('delete', path, data);
     }
 
     public async getObjects(): Promise<APIObject[]> {
         const raw: RAWObject[] = await this.get('setup/devices');
-        if(Array.isArray(raw)) {
+        if (Array.isArray(raw)) {
             return raw.map((obj) => new APIObject(obj, this));
         }
         return [];
     }
 
     public async exec(execution: Execution): Promise<Task | undefined> {
-        const res = await this.post('exec/apply', {
-            body: execution
-        });
-        if(res.execId !== undefined) {
+        const res = await this.post('exec/apply', execution);
+        if (res.execId !== undefined) {
             return new Task(execution, res.execId, this);
         }
         return undefined;
@@ -69,22 +65,26 @@ export class API {
         return new Setup(raw, this);
     }
 
-    private async req(method: Function, path: string, options?: RequestPromiseOptions): Promise<string> {
-        if(this.cookies === undefined) {
+    private async req(method: string, path: string, data?: any): Promise<any> {
+        if (this.cookies === undefined) {
             await this.ensureLogin();
         }
-        if(this.cookies !== undefined) {
+        if (this.cookies !== undefined) {
             try {
-                return await method({
-                    jar: this.cookies,
+                const res = await axios({
+                    method,
+                    data,
                     url: this.getURL(path),
-                    json: true,
-                    ...options
+                    headers: {
+                        cookie: this.cookies.join(';'),
+                        'Content-Type': 'application/json'
+                    }
                 });
-            } catch(err) {
-                if(err.statusCode === 401) {
+                return res.data;
+            } catch (err) {
+                if (err.response?.status === 401) {
                     this.cookies = undefined;
-                    return await this.req(method, path, options);
+                    return await this.req(method, path, data);
                 }
                 throw err;
             }
@@ -97,33 +97,27 @@ export class API {
         do {
             try {
                 const overkizLoginData = await this.platformLoginHandler.getLoginData();
-                res = await request.post(this.getURL('login'), {
-                    form: overkizLoginData,
-                    json: true,
-                    transform: function(body: any, response: Response, resolveWithFullResponse?: boolean): any {
-                        return {
-                            headers: response.headers,
-                            data: body
-                        }
-                    }
+                res = await axios({
+                    method: 'post',
+                    url: this.getURL('login'),
+                    data: new URLSearchParams(overkizLoginData)
                 });
-            } catch(err) {
-                if(retries < 3) {
+            } catch (err) {
+                if (retries < 3) {
                     retries++;
                 } else {
                     throw err;
                 }
             }
-        } while(res === undefined);
+        } while (res === undefined);
         const json = res.data;
-        if(json.success === true) {
-            const jar = request.jar();
-            const baseURL = this.getBaseURL();
-            res.headers['set-cookie'].forEach((cookieString: string) => {
-                jar.setCookie(cookieString, baseURL);
+        if (json.success === true) {
+            this.cookies = res.headers['set-cookie']?.map((entry: string) => {
+                const parts = entry.split(';');
+                const cookiePart = parts[0];
+                return cookiePart;
             });
-            this.cookies = jar;
-        } else if(json.error !== undefined) {
+        } else if (json.error !== undefined) {
             throw res.error;
         }
     }
